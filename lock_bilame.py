@@ -7,9 +7,9 @@ Created on 13 mai 2014
 from PyDAQmx import *
 from PyDAQmx.DAQmxCallBack import *
 import numpy as n
-from ctypes import WINFUNCTYPE
 
 DAQ='cDAQ9184-COM'
+#DAQ='CDAQ1'
 MOD_inp='Mod1'
 MOD_out='Mod4'
 inp_cor = DAQ+MOD_inp+"/ai0"#correction feeding to the laser
@@ -19,12 +19,15 @@ N_INPUT=3
 inputs = inp_cor+','+inp_pd+','+inp_err
 
 out_lock = DAQ+MOD_out+"/ao0"#tension to feed the bilames's motor
-MAX_OUT = 10
+MAX_OUT = 10 #max output tension
 
-time_lock = 5.
-n_pt = 100
+time_lock = 5. #refresh time in second
+n_pt = 100 #number of points that will be averaged together to determine dc values
+
+intensity = 10.
+intensity_pdh = 10.
+
 freq_smpl = n_pt/time_lock
-
 data = n.zeros((N_INPUT*n_pt,), dtype=n.float64)
 
 def get_cor(err, gain):
@@ -36,18 +39,27 @@ def apply_cor(cor):
     if cor<-MAX_OUT:
         cor=-MAX_OUT+0.1
     DAQmxWriteAnalogF64(taskHandle_out,1,1,10.0,DAQmx_Val_GroupByChannel,n.array(cor,dtype=float64),None,None)
+    
+def is_locked(data):
+    pdh = abs(data[:,2].mean())
+    pd = abs(data[:,1].mean())
+    if (pd > (intensity/2.)) and ((pdh < (intensity_pdh/2.))):
+        return 1
+    else:
+        return 0
 
 def lock_that_bitch(taskHandle,everyNsamplesEventType, nSamples, callbackData_ptr):
     read = int32()
     DAQmxReadAnalogF64(taskHandle,nSamples,10.0,DAQmx_Val_GroupByScanNumber,data,N_INPUT*nSamples,byref(read),None)
     data2=data.reshape( (-1, N_INPUT) )
-    cor = data[:,0].mean()
-    print data2
+    cor = data2[:,0].mean()
     print "err:%g"%(cor)
     cor = get_cor(cor, get_callbackdata_from_id(callbackData_ptr).value )
-    print "cor:%g"%(cor)
-    apply_cor(cor)
-    print "cor applied"
+    if is_locked(data2):
+        apply_cor(cor)
+        print "cor:%g applied"%(cor)
+    else:
+        print "not locked"
     return 0
 
 cb_lock_that_bitch = DAQmxEveryNSamplesEventCallbackPtr(lock_that_bitch)
@@ -68,7 +80,7 @@ if __name__ == '__main__':
         DAQmxStartTask(taskHandle_out)
         
         # DAQmx Read Code
-        
+        print ' '
         raw_input("Acquiring samples continuously. Press Enter to interrupt")
     except DAQError as err:
         print "DAQmx Error: %s"%err
