@@ -1,2 +1,2 @@
-from lock_bilame import Bilame
-from bilame import DAQDevice, voltInput
+from lock import LockBilameCOM
+#from bilame import DAQDevice, voltInput

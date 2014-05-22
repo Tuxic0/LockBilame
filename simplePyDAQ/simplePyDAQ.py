@@ -21,8 +21,7 @@ class DAQDevice(object):
         for c in chans:
             phy_chans+=self.chassis+self.mod+'/'+str(c)+','
             n_chans+=1
-        phy_chans.strip(',')
-        self.phy_chans=phy_chans
+        self.phy_chans=phy_chans.strip(',')
         self.n_chans=n_chans
 
 class Task(object):
@@ -55,7 +54,7 @@ class Task(object):
         
 class Acq(Task, object):
     '''
-    kwargs: buffer, name, freq_smpl, acq_mode, min_val, max_val, src_clk
+    kwargs: buffer, name, freq_smpl, acq_mode, min_val, max_val, clk
     '''
     def __init__(self,dev,**kwargs):
         super(Acq, self).__init__(dev, **kwargs)
@@ -66,6 +65,9 @@ class Acq(Task, object):
                 self.__dict__[k]=kwargs[k]
             else:
                 self.__dict__[k]=v
+                
+    def cfgSamplClk(self):
+        DAQmxCfgSampClkTiming(self.taskHandle,self.clk,self.freq_smpl,self.act_edge,self.acq_mode,self.buffer)
 
 class voltOutput(Acq, object):
     def __init__(self, dev, **kwargs):
@@ -76,11 +78,19 @@ class voltOutput(Acq, object):
         DAQmxCreateAOVoltageChan(self.taskHandle,self.dev.phy_chans,self.name,self.min_val,self.max_val,DAQmx_Val_Volts,None)
 
     def apply_voltage(self, volt, t_out=1):
+        if volf > self.max_val:
+            volt = max_val-0.01
+        if volf > self.max_val:
+            volt = min_val+0.01
         DAQmxWriteAnalogF64(self.taskHandle,1,1,10.0,DAQmx_Val_GroupByChannel, np.array(volt,dtype=float64),None,None)
         self.stop()
     
-    def apply_voltage_curve(self, curve, t_out=1):
+    def apply_voltage_curve(self, curve, freq, t_out=-1):
         size=curve.size/self.dev.phy_chans
+        self.buffer=size
+        self.freq_smpl=freq
+        self.acq_mode=DAQmx_Val_FiniteSamps
+        self.cfgSamplClk()
         DAQmxWriteAnalogF64(self.taskHandle,size,1,10.0,DAQmx_Val_GroupByChannel, curve,None,None)
         self.stop()
 
@@ -89,9 +99,6 @@ class voltInput(Acq, object):
         super(voltInput, self).__init__(dev, **kwargs)
         self.createAIVoltage()
             
-    def cfgSamplClk(self):
-        DAQmxCfgSampClkTiming(self.taskHandle,self.clk,self.freq_smpl,self.act_edge,self.acq_mode,self.buffer)
-        
     def createAIVoltage(self):
         DAQmxCreateAIVoltageChan(self.taskHandle,self.dev.phy_chans,self.name,self.term_cfg,self.min_val,self.max_val,DAQmx_Val_Volts,None)
     
@@ -111,16 +118,4 @@ class voltInput(Acq, object):
         self.stop()
         data2=data.reshape( (-1, self.dev.n_chans) )
         return data2
-
-class Bilame(voltOutput, object):
-    def __init__(self, test=None, **kwargs):
-        if test is None:
-            dev=DAQDevice(cfg.DEF_CHASSIS,cfg.DEF_MOD,cfg.DEF_CHAN)
-        elif test is True:
-            dev=DAQDevice(cfg.DEF_CHASSIS_TEST,cfg.DEF_MOD_TEST,cfg.DEF_CHAN_TEST)
-        else:
-            dev=test
-        super(Bilame, self).__init__(dev, **kwargs)
-
-
-        
+    
