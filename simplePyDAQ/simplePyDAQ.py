@@ -19,7 +19,7 @@ class DAQDevice(object):
         phy_chans=""
         n_chans=0
         for c in chans:
-            phy_chans+=self.chassis+self.mod+'/'+str(c)+','
+            phy_chans+=self.chassis+self.mod+'/'+c+','
             n_chans+=1
         self.phy_chans=phy_chans.strip(',')
         self.n_chans=n_chans
@@ -86,7 +86,7 @@ class voltOutput(Acq, object):
         self.stop()
     
     def apply_voltage_curve(self, curve, freq, t_out=-1):
-        size=curve.size/self.dev.phy_chans
+        size=curve.size/self.dev.n_chans
         self.buffer=size
         self.freq_smpl=freq
         self.acq_mode=DAQmx_Val_FiniteSamps

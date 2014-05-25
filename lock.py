@@ -9,119 +9,244 @@ import numpy as np
 import scipy.signal as sign
 import sys, getopt
 from PyQt4 import QtCore, QtGui
+from math import sqrt,pi
+
+#See https://code.google.com/p/guidata/source/browse/guidata/__init__.py
+#from guidata import qapplication as __qapplication
+#_APP = __qapplication()
+
 
 class LockBilameCOM(QtGui.QWidget, object):
-    def __init__(self, gain=1. , n=1000, t=10., cut=2., fake=None):
+    def __init__(self, gain=1. , n_sample=1000, acq_time=10., cut=2., test=None, pd_max=1., pdh_max=1.):
         super(LockBilameCOM, self).__init__()
+        self._createUI(gain, n_sample, acq_time, cut, pd_max, pdh_max)
         
+        self.acq_time=acq_time
+        self.gain=gain
+        self.n_sample=n_sample
+        self.cut=cut
+        self.pd_max=pd_max
+        self.pdh_max=pdh_max
+        self.bilame=Bilame(test=test)
+        self.watch=WatchedData(test=test)
+        
+        self.timer = QtCore.QTimer()
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.lock_that_bitch)
 
-#        self.acq_time=t
-#        self.gain=gain
-#        self.n_sample=n
-#        self.cut=cut
-#        self.bilame=Bilame(test=fake)
-#        self.watch=WatchedData(test=fake)
+    def _createUI(self, gain, n_sample, acq_time, cut, pd_max, pdh_max):
+        self.label_lock = QtGui.QLabel('Lock Bilame')
         
-#        self.timer = QtCore.QTimer()
-#        self.timer.setSingleShot(True)
-#        self.timer.timeout.connect(self.lock_that_bitch)
-#        
-#        self.label_lock = QtGui.QLabel('Lock Bilame')
-#        
-#        self.button_start = QtGui.QPushButton("Start")
-#        self.button_start.clicked.connect(self.button_start_clicked)
-#        
-#        self.button_stop = QtGui.QPushButton("Stop")
-#        self.button_stop.clicked.connect(self.button_stop_clicked)
-#        
-#        self.button_reset = QtGui.QPushButton("Reset")
-#        self.button_reset.clicked.connect(self.button_reset_clicked)
-#        
-#        self.label_acq_time = QtGui.QLabel('Acq time (s)')
-#        self.sleep_time_lock_box = QtGui.QSpinBox() 
-#        self.sleep_time_lock_box.setMaximum(int(1e2))
-#        self.sleep_time_lock_box.setValue(self.acq_time)
-#        
-#        self.label_acq_time = QtGui.QLabel('Number of samples)')
-#        self.sleep_time_lock_box = QtGui.QSpinBox() 
-#        self.sleep_time_lock_box.setMaximum(int(1e4))
-#        self.sleep_time_lock_box.setValue(self.n_sample)
-#        
-#        self.gain_label = QtGui.QLabel('gain')
-#        self.gain_box=QtGui.QSpinBox()
-#        self.gain_box.setMaximum(100)
-#        self.gain_box.setMinimum(-100)
-#        self.gain_box.setValue(self.gain)
-#        
-#        self.gain_label = QtGui.QLabel('Cut-off')
-#        self.gain_box=QtGui.QSpinBox()
-#        self.gain_box.setMaximum(100)
-#        self.gain_box.setMinimum(0)
-#        self.gain_box.setValue(self.cut)
-#        
-#        self.hlay1 = QtGui.QHBoxLayout()
-#        self.hlay1.addWidget(self.label_lock)
-#        self.hlay1.addStretch(1)
-#        self.hlay1.addWidget(self.button_start)
-#        self.hlay1.addWidget(self.button_stop)
-#        self.hlay1.addWidget(self.button_reset)
-#        
-#        self.v_lay = QtGui.QVBoxLayout()
-#        self.v_lay.addLayout(self.hlay1)
-#        
-#        self.setLayout(self.v_lay)
-#        self.setWindowTitle("Lock Bilame")
-#        
+        self.button_start = QtGui.QPushButton("Start")
+        self.button_start.clicked.connect(self.button_start_clicked)
+        
+        self.button_stop = QtGui.QPushButton("Stop")
+        self.button_stop.clicked.connect(self.button_stop_clicked)
+        
+        self.button_reset = QtGui.QPushButton("Reset")
+        self.button_reset.clicked.connect(self.button_reset_clicked)
+        
+        self.acq_time_label = QtGui.QLabel('Acq time (s)')
+        self.acq_time_box = QtGui.QDoubleSpinBox() 
+        self.acq_time_box.setMaximum(int(1e2))
+        self.acq_time_box.setValue(acq_time)
+        
+        self.n_sample_label = QtGui.QLabel('Number of samples')
+        self.n_sample_box = QtGui.QSpinBox() 
+        self.n_sample_box.setMaximum(int(1e4))
+        self.n_sample_box.setValue(n_sample)
+        
+        self.gain_label = QtGui.QLabel('gain')
+        self.gain_box=QtGui.QDoubleSpinBox()
+        self.gain_box.setMaximum(100)
+        self.gain_box.setMinimum(-100)
+        self.gain_box.setValue(gain)
+        
+        self.cut_label = QtGui.QLabel('Cut-off frequency')
+        self.cut_box=QtGui.QDoubleSpinBox()
+        self.cut_box.setSingleStep(0.25)
+        self.cut_box.setMaximum(100)
+        self.cut_box.setMinimum(0)
+        self.cut_box.setValue(cut)
+        
+        self.pd_max_label = QtGui.QLabel('Pd intensity')
+        self.pd_max_box=QtGui.QDoubleSpinBox()
+        self.pd_max_box.setSingleStep(0.1)
+        self.pd_max_box.setMaximum(10)
+        self.pd_max_box.setMinimum(0)
+        self.pd_max_box.setValue(pd_max)
+        
+        self.pdh_max_label = QtGui.QLabel('PDH intensity')
+        self.pdh_max_box=QtGui.QDoubleSpinBox()
+        self.pdh_max_box.setSingleStep(0.1)
+        self.pdh_max_box.setMaximum(10)
+        self.pdh_max_box.setMinimum(0)
+        self.pdh_max_box.setValue(pdh_max)
+        
+        self.hlay1 = QtGui.QHBoxLayout()
+        self.hlay1.addWidget(self.label_lock)
+        self.hlay1.addStretch(1)
+        self.hlay1.addWidget(self.button_start)
+        self.hlay1.addWidget(self.button_stop)
+        self.hlay1.addWidget(self.button_reset)
+        
+        self.hlay2 = QtGui.QHBoxLayout()
+        self.hlay2.addWidget(self.gain_label)
+        self.hlay2.addWidget(self.gain_box)
+        self.hlay2.addStretch(1)
+        self.hlay2.addWidget(self.cut_label)
+        self.hlay2.addWidget(self.cut_box)
+        
+        self.hlay3 = QtGui.QHBoxLayout()
+        self.hlay3.addWidget(self.acq_time_label)
+        self.hlay3.addWidget(self.acq_time_box)
+        self.hlay3.addStretch(1)
+        self.hlay3.addWidget(self.n_sample_label)
+        self.hlay3.addWidget(self.n_sample_box)
+        
+        self.hlay4 = QtGui.QHBoxLayout()
+        self.hlay4.addWidget(self.pd_max_label)
+        self.hlay4.addWidget(self.pd_max_box)
+        self.hlay4.addStretch(1)
+        self.hlay4.addWidget(self.pdh_max_label)
+        self.hlay4.addWidget(self.pdh_max_box)
+        
+        self.v_lay = QtGui.QVBoxLayout()
+        self.v_lay.addLayout(self.hlay1)
+        self.v_lay.addLayout(self.hlay2)
+        self.v_lay.addLayout(self.hlay3)
+        self.v_lay.addLayout(self.hlay4)
+        
+        self.setLayout(self.v_lay)
+        self.setWindowTitle("Lock Bilame")
+        
         self.show()
-#        
-#        def button_start_clicked(self):
-#            self.lock_that_bitch(self.gain, self.n_sample, self.acq_time)
-#            self.timer.setInterval(0.1)
-#            self.timer.start()
-#        
-#        def button_stop_clicked(self):
-#            self.timer.stop()
-#        
-#        def button_reset(self):
-#            pass
-#            
-#        def lock_that_bitch():
-#            pass
-#            print "err:%g"%(cor)
-#            if abs(cor) > THRSLD:
-#                cor = get_cor(cor, get_callbackdata_from_id(callbackData_ptr).value )
-#                if is_locked(data2):
-#                    apply_cor(cor,taskHandle_out)
-#            print "cor:%g applied"%(cor)
-#        else:
-#            print "not locked"
-#            return 1
-#    else:
-#        if is_locked(data2):
-#            print "err below threshold, correction not applied"
-#        else:
-#            print "not locked"
-#            return 1
-#    return 0
-
-
-
-def get_cor(err, gain):
-    return err*gain
-
-
-def apply_cor(cor,  prev_cor=None, filter=None):
-    if filter is None:
-        bilame.apply_voltage(cor)
+        
+    @property
+    def gain(self):
+        return self.gain_box.value()
     
-def is_locked(data, v_pd, v_pdh ):
-    pdh = abs(data[:,2].mean())
-    pd = abs(data[:,1].mean())
-    print "pd:%g pdh:%g"%(pd, pdh)
-    if ((pd >(i_pd/2.)and(pdh<i_pdh/2.))or(pd_rms>pd/5.)or(pdh_rms>pdh/5.) ):
-        return 1
-    else:
-        return 0
+    @gain.setter
+    def gain(self, val):
+        val=float(val)
+        return self.gain_box.setValue(val)
+    
+    @property
+    def cut(self):
+        return self.cut_box.value()
+    
+    @cut.setter
+    def cut(self, val):
+        val=float(val)
+        return self.cut_box.setValue(val)
+    
+    @property
+    def acq_time(self):
+        return self.acq_time_box.value()
+    
+    @acq_time.setter
+    def acq_time(self, val):
+        val=float(val)
+        return self.acq_time_box.setValue(val)
+    
+    @property
+    def n_sample(self):
+        return self.n_sample_box.value()
+    
+    @n_sample.setter
+    def n_sample(self, val):
+        val=float(val)
+        return self.n_sample_box.setValue(val)
+    
+    @property
+    def pd_max(self):
+        return self.pd_max_box.Value()
+    
+    @pd_max.setter
+    def pd_max(self, val):
+        return self.pd_max_box.setValue(val)
+    
+    @property
+    def pdh_max(self):
+        return self.pdh_max_box.Value()
+    
+    @pdh_max.setter
+    def pdh_max(self, val):
+        return self.pdh_max_box.setValue(val)
+    
+    def button_start_clicked(self):
+        self.lock_that_bitch()
+        self.timer.setInterval(0.1)
+        self.timer.start()
+    
+    def button_stop_clicked(self):
+        self.timer.stop()
+    
+    def button_reset_clicked(self):
+        pass
+        
+    def lock_that_bitch(self):
+        self.take_data()
+        print "data taken"
+        if self.is_locked():
+            cor=self.get_cor()
+            print "cor:%g"%(cor)
+            self.apply_cor(cor)
+            return 0
+        else:
+            print "not locked"
+            return 1
+
+    def take_data(self):
+        data=self.watch.readNsamples(self.n_sample, self.n_sample/self.acq_time, 2*self.acq_time)
+        self.pdh=data[:,2]
+        self.pd=data[:,1]
+        self.err=data[:,0]
+        
+    def is_locked(self):
+        pdh = abs(self.pdh.mean())
+        pd = abs(self.pd.mean())
+        pdh_rms=sqrt(self.pdh.var())
+        pd_rms=sqrt(self.pd.var())
+        print "pd:%g pdh:%g"%(pd, pdh)
+        if ((pd >(self.pd_max/2.)and(pdh<self.pdh_max/2.))and(pd_rms<pd/5.)and(pdh_rms<pdh/5.) ):
+            return True
+        else:
+            return False
+
+    def get_cor(self):
+        err=self.err.mean()
+        cor=err*self.gain
+        return cor
+
+    def apply_cor(self, cor):
+        time=5./self.cut
+        freq=20*self.cut
+        n_pt=time*freq
+        wfm=gaussian_wfm(n_pt)
+        wfm=cor*wfm
+        self.bilame.apply_voltage_curve(wfm, freq, t_out=2*time)
+ 
+def gaussian_wfm(n_pt):
+    n_pt=int(n_pt)
+    sigma = n_pt/5.
+    moy=n_pt/2.
+    wfm = np.array(range(n_pt))
+    wfm=wfm-moy
+    wfm = np.exp( -1*(wfm)**2/2./sigma**2 )
+    wfm=wfm/sigma/sqrt(2*pi)
+    wfm[-int(sigma/2.):]=np.linspace(wfm[-int(sigma/2.)], 0, int(sigma/2.))
+    wfm[0:int(sigma/2.)]=np.linspace(0,wfm[int(sigma/2.)],int(sigma/2.))
+    return wfm
+    
+#def is_locked(data, v_pd, v_pdh ):
+#    pdh = abs(data[:,2].mean())
+#    pd = abs(data[:,1].mean())
+#    print "pd:%g pdh:%g"%(pd, pdh)
+#    if ((pd >(i_pd/2.)and(pdh<i_pdh/2.))or(pd_rms>pd/5.)or(pdh_rms>pdh/5.) ):
+#        return 1
+#    else:
+#        return 0
 
 def butter_lowpass(cut, fs, order=2):
     nyq = 0.5 * fs
@@ -138,9 +263,17 @@ def filter_low_pass(npt, t, cut, frm, to):
     fs = npt/float(t)
     begin=int(npt*5/100.)
     end=npt-begin
-    wfm = np.hstack( frm*np.ones(begin), to*np.ones(end) )
-    wfm = butter_lowpass_filter(wfm, cut, fs, order=2)
+    wfm = np.hstack( (frm*np.ones(begin), to*np.ones(end)) )
+    wfm = butter_lowpass_filter(wfm, cut, fs, order=1)
     return wfm
+
+def derivative(wfm):
+    d = np.gradient(wfm)
+    d[0]=0
+    d[-1]=0
+    return d
+
+    
 
 def lock_that_bitch(bilame, n, t):
     
@@ -163,24 +296,26 @@ def lock_that_bitch(bilame, n, t):
 
 #cb_lock_that_bitch = DAQmxEveryNSamplesEventCallbackPtr(lock_that_bitch)
 
+#_APP.exec_()
+
 if __name__ == '__main__':
     try:
-        opts, args = getopt.getopt(sys.argv[1:],"fg:t:",["fake", "gain=","time="])
+        opts, args = getopt.getopt(sys.argv[1:],"fg:t:",["test", "gain=","time="])
     except getopt.GetoptError:
-        print 'lock_bilame.py [-f <fake>]  -g <gain> -t <time>'
+        print 'lock_bilame.py [-f <test>]  -g <gain> -t <time>'
         sys.exit(2)
-    fake=False
+    test=False
     for opt, arg in opts:
         if opt in ("-g", "--gain"):
             gain=float(arg)
         if opt in ("-t", "--time"):
             time_lock=float(arg)
-        if opt in ("-f", "--fake"):
-            fake=True
+        if opt in ("-f", "--test"):
+            test=True
     gain=gain*time_lock
-    print fake
-    b = Bilame(test=fake)
-    w = WatchedData(test=fake)
+    print test
+    b = Bilame(test=test)
+    w = WatchedData(test=test)
     while True:
         try:
             pass
@@ -188,5 +323,5 @@ if __name__ == '__main__':
             print "YOLO"
     sys.exit(0)
 
-        
+  
 
