@@ -10,6 +10,7 @@ import scipy.signal as sign
 import sys, getopt
 from PyQt4 import QtCore, QtGui
 from math import sqrt,pi
+from time import sleep
 
 #See https://code.google.com/p/guidata/source/browse/guidata/__init__.py
 #from guidata import qapplication as __qapplication
@@ -17,7 +18,7 @@ from math import sqrt,pi
 
 
 class LockBilameCOM(QtGui.QWidget, object):
-    def __init__(self, gain=1. , n_sample=1000, acq_time=10., cut=2., test=None, pd_max=1., pdh_max=1.):
+    def __init__(self, gain=50. , n_sample=5000, acq_time=1., cut=1., test=False, pd_max=1.4, pdh_max=0.4):
         super(LockBilameCOM, self).__init__()
         self._createUI(gain, n_sample, acq_time, cut, pd_max, pdh_max)
         
@@ -27,8 +28,9 @@ class LockBilameCOM(QtGui.QWidget, object):
         self.cut=cut
         self.pd_max=pd_max
         self.pdh_max=pdh_max
-        self.bilame=Bilame(test=test)
+        self.bilame=Bilame(test=test,min_val=-5, max_val=5)
         self.watch=WatchedData(test=test)
+        self.sleep_time=1.
         
         self.timer = QtCore.QTimer()
         self.timer.setSingleShot(True)
@@ -160,7 +162,7 @@ class LockBilameCOM(QtGui.QWidget, object):
     
     @property
     def pd_max(self):
-        return self.pd_max_box.Value()
+        return self.pd_max_box.value()
     
     @pd_max.setter
     def pd_max(self, val):
@@ -168,7 +170,7 @@ class LockBilameCOM(QtGui.QWidget, object):
     
     @property
     def pdh_max(self):
-        return self.pdh_max_box.Value()
+        return self.pdh_max_box.value()
     
     @pdh_max.setter
     def pdh_max(self, val):
@@ -176,7 +178,7 @@ class LockBilameCOM(QtGui.QWidget, object):
     
     def button_start_clicked(self):
         self.lock_that_bitch()
-        self.timer.setInterval(0.1)
+        self.timer.setInterval(self.sleep_time)
         self.timer.start()
     
     def button_stop_clicked(self):
@@ -192,6 +194,7 @@ class LockBilameCOM(QtGui.QWidget, object):
             cor=self.get_cor()
             print "cor:%g"%(cor)
             self.apply_cor(cor)
+            self.timer.start()
             return 0
         else:
             print "not locked"
@@ -203,13 +206,24 @@ class LockBilameCOM(QtGui.QWidget, object):
         self.pd=data[:,1]
         self.err=data[:,0]
         
-    def is_locked(self):
-        pdh = abs(self.pdh.mean())
+    def is_locked(self,debug=False):
+        try:
+            pdh = abs(self.pdh.mean())
+        except AttributeError:
+            self.take_data()
+            pdh = abs(self.pdh.mean())
+        except:
+            raise
         pd = abs(self.pd.mean())
         pdh_rms=sqrt(self.pdh.var())
         pd_rms=sqrt(self.pd.var())
-        print "pd:%g pdh:%g"%(pd, pdh)
-        if ((pd >(self.pd_max/2.)and(pdh<self.pdh_max/2.))and(pd_rms<pd/5.)and(pdh_rms<pdh/5.) ):
+        print "pd:%g pd_rms:%g pdh:%g pdh_rms:%g"%(pd, pd_rms, pdh, pdh_rms)
+        if debug:
+            print "pd >(self.pd_max/2.):%s" %(pd >(self.pd_max/2.))
+            print "(pdh<self.pdh_max/10.):%s" %((pdh<self.pdh_max/10.))
+            print "(pd_rms<pd/30.):%s" %((pd_rms<pd/30.))
+#            print "(pdh_rms<pdh/10.):%s" %((pdh_rms<pdh/10.))
+        if ((pd >(self.pd_max/2.)and(pdh<self.pdh_max/10.))and(pd_rms<pd/30.) ):#and(pdh_rms<pdh/10.) ):
             return True
         else:
             return False
@@ -231,7 +245,7 @@ def gaussian_wfm(n_pt):
     n_pt=int(n_pt)
     sigma = n_pt/5.
     moy=n_pt/2.
-    wfm = np.array(range(n_pt))
+    wfm = np.array(range(n_pt),dtype=float64)
     wfm=wfm-moy
     wfm = np.exp( -1*(wfm)**2/2./sigma**2 )
     wfm=wfm/sigma/sqrt(2*pi)
