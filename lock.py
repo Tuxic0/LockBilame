@@ -11,6 +11,8 @@ import sys, getopt
 from PyQt4 import QtCore, QtGui
 from math import sqrt,pi
 from time import sleep
+from send_mail import threaded_send_mail
+import send_mail.cfg as cfgm
 
 #See https://code.google.com/p/guidata/source/browse/guidata/__init__.py
 #from guidata import qapplication as __qapplication
@@ -18,7 +20,7 @@ from time import sleep
 
 
 class LockBilameCOM(QtGui.QWidget, object):
-    def __init__(self, gain=50. , n_sample=5000, acq_time=1., cut=1., test=False, pd_max=1.4, pdh_max=0.4):
+    def __init__(self, gain=50. , n_sample=5000, acq_time=1., cut=1., test=False, pd_max=1.4, pdh_max=0.4, is_send_mail=True):
         super(LockBilameCOM, self).__init__()
         self._createUI(gain, n_sample, acq_time, cut, pd_max, pdh_max)
         
@@ -31,7 +33,9 @@ class LockBilameCOM(QtGui.QWidget, object):
         self.bilame=Bilame(test=test,min_val=-5, max_val=5)
         self.watch=WatchedData(test=test)
         self.sleep_time=1.
-        
+        self.is_send_mail=is_send_mail
+#        if self.is_send_mail:
+#            self.send_mail=threaded_send_mail(cfgm.TO, cfgm.FROM, cfgm.SUB, cfgm.TEXT)
         self.timer = QtCore.QTimer()
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.lock_that_bitch)
@@ -85,6 +89,9 @@ class LockBilameCOM(QtGui.QWidget, object):
         self.pdh_max_box.setMinimum(0)
         self.pdh_max_box.setValue(pdh_max)
         
+        self.is_send_mail_checkbox = QtGui.QCheckBox("send mail")
+        self.is_send_mail_checkbox.stateChanged.connect(self.check_send_mail)
+        
         self.hlay1 = QtGui.QHBoxLayout()
         self.hlay1.addWidget(self.label_lock)
         self.hlay1.addStretch(1)
@@ -113,11 +120,15 @@ class LockBilameCOM(QtGui.QWidget, object):
         self.hlay4.addWidget(self.pdh_max_label)
         self.hlay4.addWidget(self.pdh_max_box)
         
+        self.hlay5 = QtGui.QHBoxLayout()
+        self.hlay5.addWidget(self.is_send_mail_checkbox)
+        
         self.v_lay = QtGui.QVBoxLayout()
         self.v_lay.addLayout(self.hlay1)
         self.v_lay.addLayout(self.hlay2)
         self.v_lay.addLayout(self.hlay3)
         self.v_lay.addLayout(self.hlay4)
+        self.v_lay.addLayout(self.hlay5)
         
         self.setLayout(self.v_lay)
         self.setWindowTitle("Lock Bilame")
@@ -176,6 +187,21 @@ class LockBilameCOM(QtGui.QWidget, object):
     def pdh_max(self, val):
         return self.pdh_max_box.setValue(val)
     
+    @property
+    def is_send_mail(self):
+        return bool(self.is_send_mail_checkbox.checkState())
+
+    @is_send_mail.setter
+    def is_send_mail(self, val):
+        self.is_send_mail_checkbox.setCheckState(2*val)
+        
+    def check_send_mail(self):
+        if self.is_send_mail:
+            try:
+                self.send_mail
+            except AttributeError:
+                self.send_mail=threaded_send_mail(cfgm.TO, cfgm.FROM, cfgm.SUB, cfgm.TEXT)
+    
     def button_start_clicked(self):
         self.lock_that_bitch()
         self.timer.setInterval(self.sleep_time)
@@ -226,6 +252,8 @@ class LockBilameCOM(QtGui.QWidget, object):
         if ((pd >(self.pd_max/2.)and(pdh<self.pdh_max/10.))and(pd_rms<pd/30.) ):#and(pdh_rms<pdh/10.) ):
             return True
         else:
+            if self.is_send_mail:
+                self.send_mail.ev_wait_order.set()
             return False
 
     def get_cor(self):
