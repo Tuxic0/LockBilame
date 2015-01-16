@@ -13,6 +13,7 @@ from math import sqrt,pi
 from time import sleep
 from send_mail import threaded_send_mail
 import send_mail.cfg as cfgm
+from datetime import datetime
 
 #See https://code.google.com/p/guidata/source/browse/guidata/__init__.py
 #from guidata import qapplication as __qapplication
@@ -20,7 +21,7 @@ import send_mail.cfg as cfgm
 
 
 class LockBilameCOM(QtGui.QWidget, object):
-    def __init__(self, gain=50. , n_sample=5000, acq_time=1., cut=1., test=False, pd_max=1.4, pdh_max=0.4, is_send_mail=True):
+    def __init__(self, gain=10. , n_sample=700, acq_time=1., cut=1., test=False, pd_max=1., pdh_max=0.4, is_send_mail=True):
         super(LockBilameCOM, self).__init__()
         self._createUI(gain, n_sample, acq_time, cut, pd_max, pdh_max)
         
@@ -223,7 +224,7 @@ class LockBilameCOM(QtGui.QWidget, object):
             self.timer.start()
             return 0
         else:
-            print "not locked"
+            print "not locked on "+str(datetime.datetime.now())
             return 1
 
     def take_data(self):
